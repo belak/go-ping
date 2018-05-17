@@ -1,9 +1,12 @@
 # go-ping
-[![GoDoc](https://godoc.org/github.com/sparrc/go-ping?status.svg)](https://godoc.org/github.com/sparrc/go-ping)
-[![Circle CI](https://circleci.com/gh/sparrc/go-ping.svg?style=svg)](https://circleci.com/gh/sparrc/go-ping)
+[![GoDoc](https://godoc.org/github.com/belak/go-ping?status.svg)](https://godoc.org/github.com/belak/go-ping)
+[![Circle CI](https://circleci.com/gh/belak/go-ping.svg?style=svg)](https://circleci.com/gh/belak/go-ping)
 
 ICMP Ping library for Go, inspired by
 [go-fastping](https://github.com/tatsushid/go-fastping)
+
+Forked from [go-ping](https://github.com/sparrc/go-ping) and modified to have a
+more idiomatic interface.
 
 Here is a very simple example that sends & receives 3 packets:
 
@@ -46,18 +49,18 @@ it calls the "receive" callback. When it's finished, it calls the "finish"
 callback.
 
 For a full ping example, see
-[cmd/ping/ping.go](https://github.com/sparrc/go-ping/blob/master/cmd/ping/ping.go)
+[cmd/ping/ping.go](https://github.com/belak/go-ping/blob/master/cmd/ping/ping.go)
 
 ## Installation:
 
 ```
-go get github.com/sparrc/go-ping
+go get github.com/belak/go-ping
 ```
 
 To install the native Go ping executable:
 
 ```bash
-go get github.com/sparrc/go-ping/...
+go get github.com/belak/go-ping/...
 $GOPATH/bin/ping
 ```
 
