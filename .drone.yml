@@ -3,32 +3,31 @@ workspace:
   path: src/github.com/belak/go-ping
 
 pipeline:
+  deps:
+    image: golang:1.10
+    commands:
+      - go get -t ./...
+
   test:
     group: test
-    image: golang:1.10-alpine
+    image: golang:1.10
     commands:
-      - apk add --update git
-      - go get -t ./...
       - go test -v ./...
 
   lint:
     group: test
-    image: golang:1.10-alpine
+    image: golang:1.10
     commands:
-      - apk add --update git
-      - go get ./...
       - go get github.com/alecthomas/gometalinter
       - gometalinter --install
       - gometalinter ./...
 
   build:
     group: test
-    image: golang:1.10-alpine
+    image: golang:1.10
     commands:
-      - apk add --update git
-      - go get ./...
       - go build -race -o ping_linux ./cmd/ping/ping.go
-      - sudo ./ping_linux --privileged -c 2 www.google.com
-      - sudo ./ping_linux --privileged -c 3 -i 200ms www.google.com
-      - sudo ./ping_linux --privileged -c 10 -i 100ms -t 1s www.google.com
+      - ./ping_linux --privileged -c 2 www.google.com
+      - ./ping_linux --privileged -c 3 -i 200ms www.google.com
+      - ./ping_linux --privileged -c 10 -i 100ms -t 1s www.google.com
       - GOOS=darwin go build -o ping_darwin ./cmd/ping/ping.go
