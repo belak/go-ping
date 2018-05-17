@@ -38,7 +38,7 @@ func main() {
 	count := flag.Int("c", -1, "")
 	privileged := flag.Bool("privileged", false, "")
 	flag.Usage = func() {
-		fmt.Printf(usage)
+		fmt.Print(usage)
 	}
 	flag.Parse()
 

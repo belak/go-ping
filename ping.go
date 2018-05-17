@@ -241,20 +241,21 @@ func (p *Pinger) Privileged() bool {
 func (p *Pinger) Run() error {
 	var cancel func()
 	ctx := context.Background()
-	defer func() {
-		if cancel != nil {
-			cancel()
-		}
-	}()
 
 	// Our fallback timeout is the interval times the count plus two (if the
 	// count isn't 0)
 	if p.Count > 0 {
 		ctx, cancel = context.WithTimeout(context.Background(), p.Interval*time.Duration(p.Count+2))
+		defer cancel()
 	}
+
 	return p.RunContext(ctx)
 }
 
+// RunContext runs the pinger with the given context. This is a blocking
+// function that will exit when it's done. If Count or Interval are not
+// specified, it will run continuously until it is interrupted. The context
+// passed in can be used for cancellation.
 func (p *Pinger) RunContext(ctx context.Context) error {
 	var conn *icmp.PacketConn
 	var err error
@@ -278,7 +279,7 @@ func (p *Pinger) RunContext(ctx context.Context) error {
 	defer cancel()
 
 	recv := make(chan *packet, 5)
-	go p.recvICMP(conn, recv, innerCtx, wg)
+	go p.recvICMP(innerCtx, conn, recv, wg)
 
 	interval := time.NewTicker(p.Interval)
 
@@ -362,9 +363,9 @@ func (p *Pinger) Statistics() *Statistics {
 }
 
 func (p *Pinger) recvICMP(
+	ctx context.Context,
 	conn *icmp.PacketConn,
 	recv chan<- *packet,
-	ctx context.Context,
 	wg *sync.WaitGroup,
 ) {
 	defer wg.Done()
@@ -429,7 +430,7 @@ func (p *Pinger) processPacket(recv *packet) error {
 	case *icmp.Echo:
 		outPkt.Rtt = time.Since(bytesToTime(pkt.Data[:timeSliceLength]))
 		outPkt.Seq = pkt.Seq
-		p.PacketsRecv += 1
+		p.PacketsRecv++
 	default:
 		// Very bad, not sure how this can happen
 		return fmt.Errorf("Error, invalid ICMP echo reply. Body type: %T, %s",
@@ -482,8 +483,8 @@ func (p *Pinger) sendICMP(conn *icmp.PacketConn) error {
 				}
 			}
 		}
-		p.PacketsSent += 1
-		p.sequence += 1
+		p.PacketsSent++
+		p.sequence++
 		break
 	}
 	return nil
