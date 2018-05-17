@@ -44,13 +44,12 @@
 package ping
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
 	"net"
-	"os"
-	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -88,7 +87,6 @@ func NewPinger(addr string) (*Pinger, error) {
 		ipaddr:   ipaddr,
 		addr:     addr,
 		Interval: time.Second,
-		Timeout:  time.Second * 100000,
 		Count:    -1,
 
 		network: "udp",
@@ -103,10 +101,6 @@ func NewPinger(addr string) (*Pinger, error) {
 type Pinger struct {
 	// Interval is the wait time between each packet send. Default is 1s.
 	Interval time.Duration
-
-	// Timeout specifies a timeout before ping exits, regardless of how many
-	// packets have been received.
-	Timeout time.Duration
 
 	// Count tells pinger to stop after sending (and receiving) Count echo
 	// packets. If this option is not specified, pinger will operate until
@@ -256,66 +250,96 @@ func (p *Pinger) Privileged() bool {
 // Run runs the pinger. This is a blocking function that will exit when it's
 // done. If Count or Interval are not specified, it will run continuously until
 // it is interrupted.
-func (p *Pinger) Run() {
-	p.run()
+func (p *Pinger) Run() error {
+	var cancel func()
+	ctx := context.Background()
+	defer func() {
+		if cancel != nil {
+			cancel()
+		}
+	}()
+
+	// Our fallback timeout is the interval times the count plus two (if the
+	// count isn't 0)
+	if p.Count > 0 {
+		ctx, cancel = context.WithTimeout(context.Background(), p.Interval*time.Duration(p.Count+2))
+	}
+	return p.RunContext(ctx)
 }
 
-func (p *Pinger) run() {
+func (p *Pinger) RunContext(ctx context.Context) error {
 	var conn *icmp.PacketConn
 	if p.ipv4 {
 		if conn = p.listen(ipv4Proto[p.network], p.source); conn == nil {
-			return
+			return errors.New("Failed to created ipv4 listener")
 		}
 	} else {
 		if conn = p.listen(ipv6Proto[p.network], p.source); conn == nil {
-			return
+			return errors.New("Failed to created ipv6 listener")
 		}
 	}
 	defer conn.Close()
 	defer p.finish()
 
-	var wg sync.WaitGroup
-	recv := make(chan *packet, 5)
-	wg.Add(1)
-	go p.recvICMP(conn, recv, &wg)
+	var innerCtx context.Context
 
-	err := p.sendICMP(conn)
-	if err != nil {
-		fmt.Println(err.Error())
+	// We define a cancel func so it can be properly called from the defer.
+	var cancel func()
+
+	// Context cancellation for good measure.
+	defer func() {
+		if cancel != nil {
+			cancel()
+		}
+	}()
+
+	// We start off with a copy of the context.
+	innerCtx = ctx
+
+	recv := make(chan *packet, 5)
+	go p.recvICMP(conn, recv)
+
+	interval := time.NewTicker(p.Interval)
+
+	sendPing := func() error {
+		err := p.sendICMP(conn)
+		if err != nil {
+			return err
+		}
+
+		// If there was a count and we just finished sending our last
+		// packet, we need to wait for the next interval.
+		if p.Count > 0 && p.PacketsSent == p.Count {
+			innerCtx, cancel = context.WithTimeout(innerCtx, p.Interval)
+		}
+
+		return nil
 	}
 
-	timeout := time.NewTicker(p.Timeout)
-	interval := time.NewTicker(p.Interval)
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	signal.Notify(c, syscall.SIGTERM)
+	err := sendPing()
+	if err != nil {
+		return err
+	}
 
 	for {
 		select {
-		case <-c:
-			close(p.done)
-		case <-p.done:
-			wg.Wait()
-			return
-		case <-timeout.C:
-			close(p.done)
-			wg.Wait()
-			return
+		case <-innerCtx.Done():
+			return errors.New("Ping timeout")
 		case <-interval.C:
-			err = p.sendICMP(conn)
+			err = sendPing()
 			if err != nil {
-				fmt.Println("FATAL: ", err.Error())
+				return err
 			}
 		case r := <-recv:
-			err := p.processPacket(r)
+			err = p.processPacket(r)
 			if err != nil {
-				fmt.Println("FATAL: ", err.Error())
+				return err
 			}
-		default:
-			if p.Count > 0 && p.PacketsRecv >= p.Count {
-				close(p.done)
-				wg.Wait()
-				return
+
+			// If there was a count and we sent all our packets (and got all our
+			// packets) then we're done.
+			if p.Count > 0 && p.PacketsSent >= p.Count && p.PacketsRecv >= p.Count {
+				return nil
 			}
 		}
 	}
@@ -373,9 +397,7 @@ func (p *Pinger) Statistics() *Statistics {
 func (p *Pinger) recvICMP(
 	conn *icmp.PacketConn,
 	recv chan<- *packet,
-	wg *sync.WaitGroup,
 ) {
-	defer wg.Done()
 	for {
 		select {
 		case <-p.done:
