@@ -50,6 +50,7 @@ import (
 	"math"
 	"math/rand"
 	"net"
+	"sync"
 	"syscall"
 	"time"
 
@@ -71,30 +72,20 @@ var (
 
 // NewPinger returns a new Pinger struct pointer
 func NewPinger(addr string) (*Pinger, error) {
-	ipaddr, err := net.ResolveIPAddr("ip", addr)
-	if err != nil {
-		return nil, err
-	}
-
-	var ipv4 bool
-	if isIPv4(ipaddr.IP) {
-		ipv4 = true
-	} else if isIPv6(ipaddr.IP) {
-		ipv4 = false
-	}
-
-	return &Pinger{
-		ipaddr:   ipaddr,
-		addr:     addr,
+	p := &Pinger{
 		Interval: time.Second,
 		Count:    -1,
 
 		network: "udp",
-		ipv4:    ipv4,
 		size:    timeSliceLength,
+	}
 
-		done: make(chan bool),
-	}, nil
+	err := p.SetAddr(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return p, nil
 }
 
 // Pinger represents ICMP packet sender/receiver
@@ -124,9 +115,6 @@ type Pinger struct {
 
 	// OnFinish is called when Pinger exits
 	OnFinish func(*Statistics)
-
-	// stop chan bool
-	done chan bool
 
 	ipaddr *net.IPAddr
 	addr   string
@@ -269,64 +257,39 @@ func (p *Pinger) Run() error {
 
 func (p *Pinger) RunContext(ctx context.Context) error {
 	var conn *icmp.PacketConn
+	var err error
 	if p.ipv4 {
-		if conn = p.listen(ipv4Proto[p.network], p.source); conn == nil {
-			return errors.New("Failed to created ipv4 listener")
+		if conn, err = p.listen(ipv4Proto[p.network], p.source); err != nil {
+			return err
 		}
 	} else {
-		if conn = p.listen(ipv6Proto[p.network], p.source); conn == nil {
-			return errors.New("Failed to created ipv6 listener")
+		if conn, err = p.listen(ipv6Proto[p.network], p.source); err != nil {
+			return err
 		}
 	}
 	defer conn.Close()
 	defer p.finish()
 
-	var innerCtx context.Context
-
-	// We define a cancel func so it can be properly called from the defer.
-	var cancel func()
-
-	// Context cancellation for good measure.
-	defer func() {
-		if cancel != nil {
-			cancel()
-		}
-	}()
-
-	// We start off with a copy of the context.
-	innerCtx = ctx
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	defer wg.Wait()
 
 	recv := make(chan *packet, 5)
-	go p.recvICMP(conn, recv)
+	go p.recvICMP(conn, recv, ctx, wg)
 
 	interval := time.NewTicker(p.Interval)
 
-	sendPing := func() error {
-		err := p.sendICMP(conn)
-		if err != nil {
-			return err
-		}
-
-		// If there was a count and we just finished sending our last
-		// packet, we need to wait for the next interval.
-		if p.Count > 0 && p.PacketsSent == p.Count {
-			innerCtx, cancel = context.WithTimeout(innerCtx, p.Interval)
-		}
-
-		return nil
-	}
-
-	err := sendPing()
+	err = p.sendICMP(conn)
 	if err != nil {
 		return err
 	}
 
 	for {
 		select {
-		case <-innerCtx.Done():
+		case <-ctx.Done():
 			return errors.New("Ping timeout")
 		case <-interval.C:
-			err = sendPing()
+			err = p.sendICMP(conn)
 			if err != nil {
 				return err
 			}
@@ -336,8 +299,8 @@ func (p *Pinger) RunContext(ctx context.Context) error {
 				return err
 			}
 
-			// If there was a count and we sent all our packets (and got all our
-			// packets) then we're done.
+			// If there was a count, we sent all our packets and we got all our
+			// packets then we're done.
 			if p.Count > 0 && p.PacketsSent >= p.Count && p.PacketsRecv >= p.Count {
 				return nil
 			}
@@ -397,14 +360,19 @@ func (p *Pinger) Statistics() *Statistics {
 func (p *Pinger) recvICMP(
 	conn *icmp.PacketConn,
 	recv chan<- *packet,
+	ctx context.Context,
+	wg *sync.WaitGroup,
 ) {
+	defer wg.Done()
 	for {
 		select {
-		case <-p.done:
+		case <-ctx.Done():
 			return
 		default:
 			bytes := make([]byte, 512)
-			conn.SetReadDeadline(time.Now().Add(time.Millisecond * 100))
+			if deadline, ok := ctx.Deadline(); ok {
+				conn.SetReadDeadline(deadline)
+			}
 			n, _, err := conn.ReadFrom(bytes)
 			if err != nil {
 				if neterr, ok := err.(*net.OpError); ok {
@@ -412,7 +380,6 @@ func (p *Pinger) recvICMP(
 						// Read timeout
 						continue
 					} else {
-						close(p.done)
 						return
 					}
 				}
@@ -518,14 +485,12 @@ func (p *Pinger) sendICMP(conn *icmp.PacketConn) error {
 	return nil
 }
 
-func (p *Pinger) listen(netProto string, source string) *icmp.PacketConn {
+func (p *Pinger) listen(netProto string, source string) (*icmp.PacketConn, error) {
 	conn, err := icmp.ListenPacket(netProto, source)
 	if err != nil {
-		fmt.Printf("Error listening for ICMP packets: %s\n", err.Error())
-		close(p.done)
-		return nil
+		return nil, fmt.Errorf("Error listening for ICMP packets: %s", err.Error())
 	}
-	return conn
+	return conn, nil
 }
 
 func byteSliceOfSize(n int) []byte {
