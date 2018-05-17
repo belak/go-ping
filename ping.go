@@ -274,8 +274,11 @@ func (p *Pinger) RunContext(ctx context.Context) error {
 	wg.Add(1)
 	defer wg.Wait()
 
+	innerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	recv := make(chan *packet, 5)
-	go p.recvICMP(conn, recv, ctx, wg)
+	go p.recvICMP(conn, recv, innerCtx, wg)
 
 	interval := time.NewTicker(p.Interval)
 
@@ -286,7 +289,7 @@ func (p *Pinger) RunContext(ctx context.Context) error {
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-innerCtx.Done():
 			return errors.New("Ping timeout")
 		case <-interval.C:
 			err = p.sendICMP(conn)
@@ -302,6 +305,7 @@ func (p *Pinger) RunContext(ctx context.Context) error {
 			// If there was a count, we sent all our packets and we got all our
 			// packets then we're done.
 			if p.Count > 0 && p.PacketsSent >= p.Count && p.PacketsRecv >= p.Count {
+				cancel()
 				return nil
 			}
 		}
@@ -370,9 +374,9 @@ func (p *Pinger) recvICMP(
 			return
 		default:
 			bytes := make([]byte, 512)
-			if deadline, ok := ctx.Deadline(); ok {
-				conn.SetReadDeadline(deadline)
-			}
+			// TODO: We shouldn't have to do it like this - it's technically
+			// busy waiting for the context to close.
+			conn.SetReadDeadline(time.Now().Add(time.Millisecond * 100))
 			n, _, err := conn.ReadFrom(bytes)
 			if err != nil {
 				if neterr, ok := err.(*net.OpError); ok {

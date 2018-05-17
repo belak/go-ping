@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"time"
@@ -67,9 +68,16 @@ func main() {
 
 	pinger.Count = *count
 	pinger.Interval = *interval
-	pinger.Timeout = *timeout
 	pinger.SetPrivileged(*privileged)
 
 	fmt.Printf("PING %s (%s):\n", pinger.Addr(), pinger.IPAddr())
-	pinger.Run()
+
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+
+	err = pinger.RunContext(ctx)
+	if err != nil {
+		fmt.Printf("ERROR: %s\n", err.Error())
+		return
+	}
 }
