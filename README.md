@@ -1,6 +1,6 @@
 # go-ping
 [![GoDoc](https://godoc.org/github.com/belak/go-ping?status.svg)](https://godoc.org/github.com/belak/go-ping)
-[![Circle CI](https://circleci.com/gh/belak/go-ping.svg?style=svg)](https://circleci.com/gh/belak/go-ping)
+[![Build Status](https://drone.coded.io/api/badges/belak/go-ping/status.svg)](https://drone.coded.io/belak/go-ping)
 
 ICMP Ping library for Go, inspired by
 [go-fastping](https://github.com/tatsushid/go-fastping)
