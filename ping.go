@@ -376,8 +376,9 @@ func (p *Pinger) recvICMP(
 		default:
 			bytes := make([]byte, 512)
 			// TODO: We shouldn't have to do it like this - it's technically
-			// busy waiting for the context to close.
-			conn.SetReadDeadline(time.Now().Add(time.Millisecond * 100))
+			// busy waiting for the context to close. We also explicitly ignore
+			// the error for linting reasons.
+			_ = conn.SetReadDeadline(time.Now().Add(time.Millisecond * 100))
 			n, _, err := conn.ReadFrom(bytes)
 			if err != nil {
 				if neterr, ok := err.(*net.OpError); ok {
