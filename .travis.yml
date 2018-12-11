@@ -4,7 +4,7 @@ go:
   - master
 
 before_install:
-  - go get github.com/alecthomas/gometalinter
+  - go get -u github.com/alecthomas/gometalinter
   - gometalinter --install
 
 script:
