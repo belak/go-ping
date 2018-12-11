@@ -5,17 +5,14 @@ go:
 
 before_install:
   - go get -u github.com/alecthomas/gometalinter
-  - gometalinter --install
+  - $HOME/gopath/bin/gometalinter --install
 
 script:
   # Run tests
   - go test -v ./...
 
   # Run linting
-  # NOTE: This is currently disabled because for whatever reason travis seems to
-  # have a pinned version of this and there's a false positive causing failing
-  # builds.
-  #- gometalinter ./...
+  - $HOME/gopath/bin/gometalinter ./...
 
   # Build the project and attempt to run some pings we expect to succeed
   - go build -race -o ping_linux ./cmd/ping/ping.go
