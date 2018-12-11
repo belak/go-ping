@@ -1,7 +1,7 @@
 language: go
 go:
   - "1.10"
-  - master
+  - stable
 
 before_install:
   - go get -u github.com/alecthomas/gometalinter
