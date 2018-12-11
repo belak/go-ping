@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/belak/go-ping"
@@ -44,6 +45,7 @@ func main() {
 
 	if flag.NArg() == 0 {
 		flag.Usage()
+		os.Exit(1)
 		return
 	}
 
@@ -51,6 +53,7 @@ func main() {
 	pinger, err := ping.NewPinger(host)
 	if err != nil {
 		fmt.Printf("ERROR: %s\n", err.Error())
+		os.Exit(2)
 		return
 	}
 
@@ -78,6 +81,7 @@ func main() {
 	err = pinger.RunContext(ctx)
 	if err != nil {
 		fmt.Printf("ERROR: %s\n", err.Error())
+		os.Exit(3)
 		return
 	}
 }
